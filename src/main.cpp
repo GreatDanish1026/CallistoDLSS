@@ -113,12 +113,6 @@ void OnInitPipeline(device*, pipeline_layout, uint32_t count, const pipeline_sub
         const shader_desc& s = *static_cast<const shader_desc*>(subobjects[i].data);
         if (!s.code || !s.code_size) continue;
         const ShaderDecl decl = ParseDxbc(s.code, s.code_size);
-        // How many compute shaders are DXBC (declarations readable) or something else (DXIL).
-        static std::atomic<uint32_t> dxbc{0}, other{0};
-        const uint32_t n = decl.valid ? ++dxbc : ++other;
-        if (n == 1 || n % 500 == 0)
-            Log("compute shaders seen: %u DXBC, %u other (latest: %.4s, %zu bytes)", dxbc.load(), other.load(),
-                static_cast<const char*>(s.code), s.code_size);
         std::lock_guard<std::mutex> lock(g_pipeMutex);
         g_pipeHash[pipe.handle] = Fnv(s.code, s.code_size);
         g_pipeDecl[pipe.handle] = decl;
@@ -242,8 +236,7 @@ bool IsTsr(uint32_t id) {
 
 // Whether a compute pass gets its bound textures and constants written: TSR's once they are known,
 // every one until then.
-// Callisto probe (0.0.2): every pass while the TAA isn't known in this game (kTaaMain placeholder).
-bool Detailed(uint32_t id) { return !rd::kTsrMapped || IsTsr(id) || (rd::kTaaMain >> 16) == 0xdead; }
+bool Detailed(uint32_t id) { return !rd::kTsrMapped || IsTsr(id); }
 
 // Constant buffers already written in this capture (buffer and offset): the View uniform buffer is
 // bound to most passes, so it's written once per frame.
@@ -690,32 +683,17 @@ bool PipeHasTaaRegisters(pipeline pipe) {
 
 }  // namespace rd
 
-unsigned int g_debugSkip = 0;
-
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
     switch (reason) {
         case DLL_PROCESS_ATTACH:
             if (!reshade::register_addon(module)) return FALSE;
             g_loadTick = GetTickCount64();
             OpenLog();
-            // Debug (Callisto launch hang, 0.0.2): ReShade.ini [CallistoDLSS] DebugSkip bit mask
-            // leaves out groups of events: 1 descriptor tracking, 2 upscaler, 4 frame generation,
-            // 8 pipeline ids (init_pipeline), 16 the capture's events.
-            g_debugSkip = 0;
-            reshade::get_config_value(nullptr, RD_PRODUCT, "DebugSkip", g_debugSkip);
-            if (g_debugSkip) Log("DebugSkip %u", g_debugSkip);
-            if (!(g_debugSkip & 1)) descriptor_tracking::register_events();
-            if (!(g_debugSkip & 2)) rd::RegisterUpscaler();
-            if (!(g_debugSkip & 4)) rd::RegisterFrameGen();
-            if (!(g_debugSkip & 8)) {
-                reshade::register_event<reshade::addon_event::init_pipeline>(&OnInitPipeline);
-                reshade::register_event<reshade::addon_event::destroy_pipeline>(&OnDestroyPipeline);
-            }
-            if (g_debugSkip & 16) {
-                reshade::register_event<reshade::addon_event::present>(&OnPresent);
-                reshade::register_overlay(RD_PRODUCT, &DrawOverlay);
-                break;
-            }
+            descriptor_tracking::register_events();
+            rd::RegisterUpscaler();
+            rd::RegisterFrameGen();
+            reshade::register_event<reshade::addon_event::init_pipeline>(&OnInitPipeline);
+            reshade::register_event<reshade::addon_event::destroy_pipeline>(&OnDestroyPipeline);
             reshade::register_event<reshade::addon_event::reset_command_list>(&OnReset);
             reshade::register_event<reshade::addon_event::execute_command_list>(&OnExecute);
             reshade::register_event<reshade::addon_event::barrier>(&OnBarrier);
@@ -734,9 +712,9 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
             reshade::register_overlay(RD_PRODUCT, &DrawOverlay);
             break;
         case DLL_PROCESS_DETACH:
-            if (!(g_debugSkip & 4)) rd::UnregisterFrameGen();
-            if (!(g_debugSkip & 2)) rd::UnregisterUpscaler();
-            if (!(g_debugSkip & 1)) descriptor_tracking::unregister_events();
+            rd::UnregisterFrameGen();
+            rd::UnregisterUpscaler();
+            descriptor_tracking::unregister_events();
             reshade::unregister_addon(module);
             if (g_log) fclose(g_log);
             break;

@@ -193,6 +193,19 @@ shadows 2, reflections 0, AO 2, diffuse indirect 1, GI 1, sky light 1). No faile
 on, visible in the frame counter as well. Other 4+-target sets seen (214x120 formats 26/61,
 128x128 rgba16f) are not G-buffers.
 
+## 1.0.0 (2026-11-12): release cleanup
+
+- **TAA passes skipped**: in capture 1 nothing outside the TAA chain reads its intermediates
+  (outside the chain they only appear in srv->uav barriers before the next write); only the
+  resolve's u3 goes on to post-processing. While the upscaler takes the resolve, the velocity pass
+  (after its velocity binding is read), csfb3b53e2, cs4e194ee4, cs34874c9f and cs04a2c218 are
+  skipped; cs3d58af3a (a clear, before the decision) still runs. Only when the previous resolve was
+  upscaled and this frame's velocity is real (not the 1x1 camera-cut placeholder); the add-on
+  switched back on runs one full game TAA first.
+- Removed: Streamline verbose log, DebugSkip, the test cvar hold, the present-count log (it read
+  1.00 even with frames generated), the compute-shader format count, the capture-everything rule.
+  The pre-HUD picture stays off for DLSS-G unless `FgHudless=1`.
+
 To find out:
 - Is `r.FidelityFX.FSR2.Enabled` found and held at 0, and does UE's TAA then run (TAA shader id)?
 - Does the UE 4.27 cvar layout check pass in this fork? Do the View offsets (1952/2016/2080) hold?

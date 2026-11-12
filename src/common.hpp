@@ -51,6 +51,9 @@ constexpr bool kTagAtRecord = false;
 constexpr uint32_t kTaaMain = 0x1bf8ea52;
 constexpr uint32_t kTaaVelocityPass = 0x1f086929;
 constexpr uint32_t kTaaColorReg = 0, kTaaDepthReg = 1, kTaaOutputReg = 3, kTaaHistoryReg = 0;
+// The TAA's passes between the velocity pass and the resolve, whose results only the TAA itself
+// reads (capture 2026-11-12): skipped, with the velocity pass, while the upscaler takes the resolve.
+constexpr uint32_t kTaaSkippable[] = {0xfb3b53e2, 0x4e194ee4, 0x34874c9f, 0x04a2c218};
 constexpr uint32_t kTsrClearPrevTextures = 0xdead0001;
 constexpr uint32_t kTsrForwardScatterDepth = 0xdead0002;
 constexpr uint32_t kTsrDilateVelocity = 0xdead0003;

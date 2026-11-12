@@ -181,6 +181,7 @@ struct __declspec(uuid("3d0f6b1e-8c42-4a57-b1e9-5a7c0d2f9e61")) ListState {
     StageState compute, graphics;
     Chain chain;
     resource engineVelocity = {0};  // UE's velocity, from this list's kTaaVelocityPass (Callisto)
+    bool skipTaa = false;           // this list's TAA passes before the resolve are skipped
 };
 
 ListState* State(command_list* cl) { return cl->get_private_data<ListState>(); }
@@ -1337,23 +1338,41 @@ bool IsTaa(command_list* cl, ListState& s) {
     return match;
 }
 
+bool g_lastTaaUpscaled = false;  // the last TAA resolve was the upscaler's (g_mutex)
+bool g_skipLogged = false;
+
 bool OnDispatch(command_list* cl, uint32_t x, uint32_t y, uint32_t z) {
-    if (!g_set.enabled) return false;
+    if (!g_set.enabled) {
+        g_lastTaaUpscaled = false;  // switched back on: the first frame runs the game's whole TAA
+        return false;
+    }
     ListState* s = State(cl);
     if (!s) return false;
     std::lock_guard<std::recursive_mutex> lock(g_mutex);
     (void)x, (void)y, (void)z;
     if (s->computeId == kTaaVelocityPass) {
         s->engineVelocity = Bound(cl, s->compute, 0, 1);  // UE's velocity, for our motion vectors
+        const resource_desc vd = cl->get_device()->get_resource_desc(s->engineVelocity);
         static int logged = 0;
-        if (!logged++) {
-            const resource_desc vd = cl->get_device()->get_resource_desc(s->engineVelocity);
+        if (!logged++)
             Log("TAA velocity pass: UE velocity %ux%u format %u", vd.texture.width, vd.texture.height,
                 static_cast<uint32_t>(vd.texture.format));
-        }
-        return false;
+        // The game's TAA up to the resolve is wasted work while the upscaler writes the resolve's
+        // output. Skipped only after an upscaled resolve and with a real velocity buffer (camera
+        // cuts bind a 1x1 placeholder, and the game's TAA takes those frames), so the game's TAA
+        // never resolves from passes that didn't run, short of the upscaler failing mid-frame.
+        s->skipTaa = g_lastTaaUpscaled && IsVelocityFormat(vd.texture.format) && vd.texture.width > 16;
+        if (s->skipTaa && !g_skipLogged) g_skipLogged = true, Log("the game's TAA passes before the resolve skipped");
+        return s->skipTaa;
     }
-    return IsTaa(cl, *s) && OnTaa(cl, *s);
+    if (s->skipTaa)
+        for (uint32_t id : kTaaSkippable)
+            if (s->computeId == id) return true;
+    if (!IsTaa(cl, *s)) return false;
+    const bool upscaled = OnTaa(cl, *s);
+    g_lastTaaUpscaled = upscaled;
+    s->skipTaa = false;
+    return upscaled;
 }
 
 void OnDestroyDevice(device* dev) {
@@ -1516,37 +1535,9 @@ void Fsr2Tick() {
     }
 }
 
-// Test hold (Callisto 0.0.8, DLSS-G and HDR): ReShade.ini [CallistoDLSS] TestCvar=<name>,
-// TestValue=<value> is held on the game thread while set. Game thread.
-void TestCvarTick() {
-    static bool read = false;
-    static char name[128] = {}, value[64] = {};
-    static void* var = nullptr;
-    if (!read) {
-        read = true;
-        size_t n = sizeof(name), m = sizeof(value);
-        if (!reshade::get_config_value(nullptr, RD_PRODUCT, "TestCvar", name, &n) ||
-            !reshade::get_config_value(nullptr, RD_PRODUCT, "TestValue", value, &m) || !name[0])
-            return;
-        wchar_t wname[128];
-        swprintf(wname, 128, L"%hs", name);
-        var = cvars::FindVariable(g_res.manager, wname);
-        Log("test cvar %s = %s: %s", name, value, var ? "held" : "NOT found");
-    }
-    if (!var) return;
-    wchar_t now[64] = L"", want[64];
-    swprintf(want, 64, L"%hs", value);
-    cvars::GetText(var, cvars::GetType(var), now, 64);
-    if (wcscmp(now, want) != 0) {
-        cvars::Set(var, want);
-        Log("test cvar %s: %ls -> %ls", name, now, want);
-    }
-}
-
 // Game thread, about every 15 frames.
 void ResolutionTick() {
     if (++g_res.ticks % 15 != 0) return;
-    TestCvarTick();
     Fsr2Tick();
     DenoiserTick();
     const float want = g_res.want.load();

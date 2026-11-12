@@ -1,10 +1,9 @@
-// Finds Unreal console variables in the running game and reads and sets them, for Stray
-// (BlueTwelve Studio, UE 4.27, project Hk_project, no PDB). From PacificDriveTweaks (UE 4.27) and
-// StrayTweaks (UE 4.25). Stray's code is encrypted on disk by SteamStub (.bind), so its call
-// sites can't be read offline; the scanner reads the decrypted code in memory, and the layout
-// check at connect refuses to set anything if the UE 4.27 layout doesn't hold.
+// Finds Unreal console variables in the running game and reads and sets them. From StrayDLSS
+// (Stray, UE 4.27, whose exe is SteamStub-encrypted, hence the run-time scan), PacificDriveTweaks
+// (UE 4.27) and StrayTweaks (UE 4.25). The Callisto Protocol (UE 4.27.2) uses the same layout; the
+// layout check at connect refuses to set anything if it doesn't hold.
 //
-// The exe isn't protected; sections are still picked by their flags: code = executable and not
+// Its exe isn't protected; sections are still picked by their flags: code = executable and not
 // writable; read-only data = readable, not executable, not writable.
 //
 // IConsoleManager::Singleton is found from the game's own code: cvar lookups load it with

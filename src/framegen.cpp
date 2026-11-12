@@ -262,7 +262,6 @@ void DestroyMask(device* dev) {
 
 bool g_fgOn = false;                  // what Streamline was last told
 std::atomic<uint64_t> g_presents{0}, g_tagged{0};
-IDXGISwapChain* g_presentingSc = nullptr;  // the game's (Streamline proxy) swapchain, for present counts
 uint32_t g_untagged = 0;  // game frames in a row without inputs
 // Diagnostics (upscaler.cpp's diag line): tag calls that returned early, tags set, frames untagged.
 std::map<std::string, uint32_t> g_tagWhy;
@@ -450,23 +449,10 @@ void BeforePresent() {
     if (g_sl.dlssgGetState && g_presents % 30 == 0) {
         sl::DLSSGState st{};
         if (g_sl.dlssgGetState(sl::ViewportHandle(0), st, nullptr) == sl::Result::eOk) {
-            // On change, at the start, and about every 10 s while frame generation is on (Callisto:
-            // a run whose state never changed left nothing to tell whether frames were generated).
-            static uint64_t lastLogged = 0;
+            // On change and at the start. (In The Callisto Protocol numFramesActuallyPresented read 1
+            // even while frames were generated: an overlay counting real presents is the judge.)
             if (st.status != g_state.status || st.numFramesActuallyPresented != g_state.numFramesActuallyPresented ||
-                g_presents == 30 || (g_fgOn && g_presents - lastLogged >= 600)) {
-                // Presents that reached DXGI (generated ones included) per game frame since the last
-                // line: GetLastPresentCount counts every Present on the real swapchain.
-                static UINT lastCount = 0;
-                static uint64_t lastGame = 0;
-                UINT count = 0;
-                if (g_presentingSc && SUCCEEDED(g_presentingSc->GetLastPresentCount(&count)) && lastGame &&
-                    g_presents > lastGame)
-                    Log("frame generation: %u DXGI presents for %llu game frames (%.2f per game frame)", count - lastCount,
-                        static_cast<unsigned long long>(g_presents - lastGame),
-                        static_cast<double>(count - lastCount) / static_cast<double>(g_presents - lastGame));
-                lastCount = count, lastGame = g_presents;
-                lastLogged = g_presents;
+                g_presents == 30) {
                 sl::ReflexState rs{};
                 const bool reflex = g_sl.reflexGetState && g_sl.reflexGetState(rs) == sl::Result::eOk;
                 Log("frame generation state: %s, %u frame(s) presented per game frame, status 0x%x%s%s%s%s%s, min size %u, "
@@ -556,7 +542,6 @@ CreateForHwndFn g_createForHwnd = nullptr;
 
 HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
     const bool frame = (flags & DXGI_PRESENT_TEST) == 0;
-    g_presentingSc = sc;
     if (frame) BeforePresent();
     const HRESULT hr = g_present(sc, sync, flags);
     if (frame) AfterPresent();
@@ -565,7 +550,6 @@ HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* sc, UINT sync, UINT flags)
 
 HRESULT STDMETHODCALLTYPE HookPresent1(IDXGISwapChain1* sc, UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* p) {
     const bool frame = (flags & DXGI_PRESENT_TEST) == 0;
-    g_presentingSc = sc;
     if (frame) BeforePresent();
     const HRESULT hr = g_present1(sc, sync, flags, p);
     if (frame) AfterPresent();
@@ -844,7 +828,7 @@ bool InitStreamline(ID3D12Device* device, std::string& error) {
     pref.pathsToPlugins = paths;
     pref.numPathsToPlugins = 1;
     pref.pathToLogsAndData = dir.c_str();  // sl.log
-    pref.logLevel = sl::LogLevel::eVerbose;  // Callisto probe 0.0.6: why DLSS-G generates nothing
+    pref.logLevel = sl::LogLevel::eDefault;
     pref.logMessageCallback = &OnSlLog;
     // No over-the-air updates: only the DLLs that ship with the add-on are used.
     pref.flags = sl::PreferenceFlags::eDisableCLStateTracking | sl::PreferenceFlags::eUseManualHooking |
