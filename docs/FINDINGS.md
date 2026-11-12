@@ -176,6 +176,23 @@ works and "the picture looked great" (RenoDX look kept). No crash.
 Still to clean up before a release: Streamline log back to eDefault, Detailed() capture-all
 condition, DebugSkip, our misleading present counters, README.
 
+## Ray Reconstruction: what the capture shows (2026-11-12)
+
+Base pass (capture 1, 8 render targets at 4K): RT0 r11g11b10f scene colour, RT1 rgb10a2 (GBufferA),
+RT2 + RT3 bgra8 **typeless** (format 90; GBufferB/C), RT4 rg16unorm velocity, RT5 bgra8 typeless,
+RT6 format 12, RT7 rgb10a2 (the fork's extras). The matcher checks the RTV view formats, so it
+should take it as is. Denoisers: reflections already 0 (no UE denoiser), shadows 2; the fork's
+tiled RT shadows (`r.RayTracing.TiledCulling`, half-rate dithered tiles + `UpscaleShadows`) have no
+clear off switch: left alone for the first test. RR tested as built in 0.0.9 first.
+
+**0.0.9 RR test (2026-11-12, 4K HDR, DLSS Quality 2561x1441, DLSS-G on): WORKS.** G-buffer
+2564x1444 found (8 targets; view formats A 24, B 87, C 91, as Stray's); View matrices check passed;
+RR 2561x1441 -> 4K (preset default, then F); the 6 UE denoisers off/on with the toggle (game's:
+shadows 2, reflections 0, AO 2, diffuse indirect 1, GI 1, sky light 1). No failed frames, no
+"not invertible" spam when switching back to SR, no crash. User: a noticeable difference with RR
+on, visible in the frame counter as well. Other 4+-target sets seen (214x120 formats 26/61,
+128x128 rgba16f) are not G-buffers.
+
 To find out:
 - Is `r.FidelityFX.FSR2.Enabled` found and held at 0, and does UE's TAA then run (TAA shader id)?
 - Does the UE 4.27 cvar layout check pass in this fork? Do the View offsets (1952/2016/2080) hold?
