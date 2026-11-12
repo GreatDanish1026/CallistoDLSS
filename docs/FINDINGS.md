@@ -206,6 +206,14 @@ on, visible in the frame counter as well. Other 4+-target sets seen (214x120 for
   1.00 even with frames generated), the compute-shader format count, the capture-everything rule.
   The pre-HUD picture stays off for DLSS-G unless `FgHudless=1`.
 
+**1.0.0 test (2026-11-12, 4K HDR, DLSS Quality, RR on, DLSS-G 2x): OK.** "the game's TAA passes
+before the resolve skipped" from the first upscaled frames on; no failed frames; HDR layer and
+frame generation ran; F9 off/on twice: denoisers restored and off again, RR and frame generation
+back at once; no crash. RR fell back to Super Resolution for the first ~12 s of the level ("G-buffer
+not found yet"): the 2564x1444 G-buffer (depth-size key) was first matched at 55 s, like Stray's
+first-level-load delay; the "not taken" log lines were used up by 128x128 sets, so why isn't known.
+Next time: log unmatched 7+ target sets separately.
+
 To find out:
 - Is `r.FidelityFX.FSR2.Enabled` found and held at 0, and does UE's TAA then run (TAA shader id)?
 - Does the UE 4.27 cvar layout check pass in this fork? Do the View offsets (1952/2016/2080) hold?

@@ -81,6 +81,10 @@ Tested with the Epic Games Store version at 3840x2160 on an NVIDIA RTX 5080, HDR
 Frame Generation 2x/3x in SDR and in HDR, FSR upscaling. FSR Frame Generation isn't tested in
 this game yet.
 
+Known issue: when a level first loads, Ray Reconstruction can take ten seconds or so to find the
+game's G-buffer; until then DLSS Super Resolution is used (as in StrayDLSS). Afterwards, including
+after switching the upscaler off and on, it starts right away.
+
 ## Build
 
 `.\build.ps1` (Visual Studio 2022 C++ tools, Windows SDK for `fxc`). The runtimes aren't in the
