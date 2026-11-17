@@ -256,3 +256,7 @@ To find out:
   But at the first start it switched on/off 3 times in 0.1 s: after resuming (8 tagged in a row) the
   older misses still in the 16-present window paused it again. Fixed: history cleared on resume.
   Settings log line now includes the RR shadow mode.
+- Retest (11:20): frame generation started once (2x), no flapping; 3 untagged single frames in ~80 s.
+- Exit crash is reproducible: identical in all three 2026-11-17 sessions (exe+0xc44845, write to null+0x40,
+  ~5 s after returning to the main menu, UE4SS dumps without stacks). No dump on 2026-11-16 with
+  UE4SS 1.0.1 installed too. Not yet bisected (UE4SS off / add-on off).
