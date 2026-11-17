@@ -1,4 +1,4 @@
-# CallistoDLSS 1.0.0
+# CallistoDLSS 1.0.2
 
 ReShade add-on for **The Callisto Protocol** (Unreal Engine 4.27, DirectX 12) that replaces the
 game's own TAA with **NVIDIA DLSS** (optionally **DLSS Ray Reconstruction**) or **AMD FSR**, and

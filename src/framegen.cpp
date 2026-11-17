@@ -266,6 +266,31 @@ uint32_t g_untagged = 0;  // game frames in a row without inputs
 // Diagnostics (upscaler.cpp's diag line): tag calls that returned early, tags set, frames untagged.
 std::map<std::string, uint32_t> g_tagWhy;
 uint32_t g_tagsSet = 0, g_framesUntagged = 0;
+// Presents with and without inputs, newest in bit 0 (1 = without). Frame generation pauses when
+// 4 of the last 16 presents had none and resumes only after 8 in a row with inputs. 1.0.1 paused only
+// after 8 in a row without: in Callisto's black scene transitions inputs came for some presents
+// only, so frame generation stayed on over frames without inputs (Streamline errors, skipped
+// presents) and the run counter never reached 8 (user, 2026-11-17).
+uint32_t g_missingHistory = ~0u;
+bool g_inputsSteady = false;
+uint32_t g_pauseLogs = 0;
+
+// Counts this present (<has>: it had inputs) and returns whether frame generation may run.
+bool InputsSteady(bool has) {
+    g_untagged = has ? 0 : g_untagged + 1;
+    if (g_untagged) ++g_framesUntagged;
+    g_missingHistory = (g_missingHistory << 1) | (has ? 0u : 1u);
+    const uint32_t missing16 = static_cast<uint32_t>(__popcnt(g_missingHistory & 0xffffu));
+    if (g_inputsSteady && missing16 >= 4) {
+        g_inputsSteady = false;
+        if (g_pauseLogs++ < 20)
+            Log("frame generation: %u of the last 16 presents without inputs (%u in a row): paused until 8 in a row have them",
+                missing16, g_untagged);
+    } else if (!g_inputsSteady && (g_missingHistory & 0xffu) == 0) {
+        g_inputsSteady = true;
+    }
+    return g_inputsSteady;
+}
 sl::DLSSGState g_state{};  // last read on the presenting thread
 
 // The camera, copied from the View uniform buffer when our motion vectors are computed.
@@ -393,8 +418,7 @@ void BeforePresentFsr() {
     auto found = g_fsrByFrame.find(g_frame);
     const bool has = g_inputs.Has(g_frame) && found != g_fsrByFrame.end();
     if (g_tagged) Trace(has ? "present with inputs" : "present WITHOUT inputs", g_frame);
-    g_untagged = has ? 0 : g_untagged + 1;
-    if (g_untagged) ++g_framesUntagged;
+    const bool steady = InputsSteady(has);
     fsrfg::FrameInputs in;
     if (has) {
         const PendingInputs p = found->second;
@@ -409,7 +433,7 @@ void BeforePresentFsr() {
                     fwd[3] = {c.cameraFwd.x, c.cameraFwd.y, c.cameraFwd.z};
         memcpy(in.position, pos, 12), memcpy(in.up, up, 12), memcpy(in.right, right, 12), memcpy(in.forward, fwd, 12);
     }
-    const bool want = g_set.enabled && g_tagged > 0 && g_untagged < 8;
+    const bool want = g_set.enabled && g_tagged > 0 && steady;
     ID3D12Resource* hud = g_hudless.Has(g_frame) && g_hudlessTex.handle ? reinterpret_cast<ID3D12Resource*>(g_hudlessTex.handle) : nullptr;
     ID3D12Resource* mask = hud && g_hudMask.Has(g_frame) && g_mask.tex.handle ? reinterpret_cast<ID3D12Resource*>(g_mask.tex.handle) : nullptr;
     CheckUiRow();  // the HUD layer's alpha check (inverted or not), for the mask
@@ -439,12 +463,11 @@ void BeforePresent() {
     if (Fsr()) return BeforePresentFsr();
     ++g_presents;
     Marker(sl::PCLMarker::eRenderSubmitEnd);
-    // A frame now and then misses its inputs (another view, a hitch): frame generation only
-    // pauses after several in a row (menus, loading, DLSS off), since each switch can stutter.
+    // A frame now and then misses its inputs (a camera cut, a hitch): frame generation carries on
+    // over those, since each switch can stutter, but pauses when they're frequent (menus, loading,
+    // scene transitions, DLSS off) and waits for steady inputs before it resumes (InputsSteady).
     if (g_tagged) Trace(g_inputs.Has(g_frame) ? "present with inputs" : "present WITHOUT inputs", g_frame);
-    g_untagged = g_inputs.Has(g_frame) ? 0 : g_untagged + 1;
-    if (g_untagged) ++g_framesUntagged;
-    SetFrameGeneration(g_set.enabled && g_tagged > 0 && g_untagged < 8);
+    SetFrameGeneration(g_set.enabled && g_tagged > 0 && InputsSteady(g_inputs.Has(g_frame)));
     // The overlay's status, read here: Streamline wants it read on the presenting thread.
     if (g_sl.dlssgGetState && g_presents % 30 == 0) {
         sl::DLSSGState st{};

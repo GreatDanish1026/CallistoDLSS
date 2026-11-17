@@ -230,3 +230,20 @@ To find out:
 - 1.0.1 (port of StrayDLSS 1.2.1): textures unused for 8 presented frames are freed (with
   their views) when room is needed; limit 32; the log says how many were freed. Built, not
   yet run: to test, switch DLSS modes 4+ times and check the log for "no texture (limit)".
+
+## 1.0.1 user run (2026-11-17, 4K HDR, DLSS Quality/Balanced, RR, DLSS-G 2x, UE4SS + UltraPlusExtensions also installed)
+
+- DLSS, RR and DLSS-G all ran (Streamline: 2 presents per game frame). Single "TAA view: layout NOT as
+  expected" frames at camera cuts only.
+- **Frame generation flickering in black scene transitions**: Streamline logged missing depth/motion tags
+  on nearly every present for seconds at a time and skipped presents ("Couldn't lock the mutex on sync
+  present"), yet frame generation never paused: it only paused after 8 presents in a row without inputs,
+  and inputs came for some presents only. 1.0.2: pauses when 4 of the last 16 presents lack inputs,
+  resumes after 8 in a row have them.
+- **RR noise around some lights**: the game traces RT shadows at reduced resolution and upscales them
+  (`r.RayTracing.TiledCulling.UpscaleShadows` 1); with `r.Shadow.Denoiser` 0, RR got blotchy upscaled
+  noise. 1.0.2: `RrShadows` (overlay "Ray-traced shadows"): 0 (default) also holds UpscaleShadows 0
+  (full-res rays), 1 keeps the game's shadow denoiser, 2 = 1.0.1 behaviour. Untested.
+- Exit crash (UE4SS dump, after returning to the main menu): null `this` in game code (lock-free list
+  cmpxchg at exe+0xc44845); UE4SS's minidump has no stack. Not pursued.
+- Build note: a PATH entry with "(x86)" from DSX breaks vcvars; build with DSX entries stripped from PATH.

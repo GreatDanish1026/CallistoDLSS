@@ -86,6 +86,9 @@ struct Settings {
     // (ini RrModel, 0 = NVIDIA's default). guideView: debug view of one guide (not saved).
     bool rr = false;
     int rrPreset = 0;
+    // Ray-traced shadows with Ray Reconstruction (ini RrShadows): 0 RR denoises them, traced at full
+    // resolution; 1 the game's shadow denoiser stays on; 2 RR denoises the game's upscaled shadows (1.0.1).
+    int rrShadows = 0;
     int guideView = 0;
 } g_set;
 
@@ -122,6 +125,8 @@ void LoadSettings() {
     reshade::get_config_value(nullptr, RD_PRODUCT, "RayReconstruction", g_set.rr);
     reshade::get_config_value(nullptr, RD_PRODUCT, "RrModel", g_set.rrPreset);
     if (g_set.rrPreset != 0 && (g_set.rrPreset < 4 || g_set.rrPreset > 6)) g_set.rrPreset = 0;
+    reshade::get_config_value(nullptr, RD_PRODUCT, "RrShadows", g_set.rrShadows);
+    if (g_set.rrShadows < 0 || g_set.rrShadows > 2) g_set.rrShadows = 0;
     if (!kTsrMapped) g_set.enabled = false;  // the upscaler's passes aren't known in this game yet
     if (g_set.mode < 0 || g_set.mode >= 6) g_set.mode = 0;
 }
@@ -139,6 +144,7 @@ void SaveSettings() {
     reshade::set_config_value(nullptr, RD_PRODUCT, "TranslucencyMask", g_set.transMask);
     reshade::set_config_value(nullptr, RD_PRODUCT, "RayReconstruction", g_set.rr);
     reshade::set_config_value(nullptr, RD_PRODUCT, "RrModel", g_set.rrPreset);
+    reshade::set_config_value(nullptr, RD_PRODUCT, "RrShadows", g_set.rrShadows);
 }
 
 // ---------------------------------------------------------------- per command list bindings
@@ -1473,17 +1479,24 @@ cvars::SinksFn g_origSinks = nullptr;
 // UE 4.27's ray tracing denoisers (names from the game's exe). Ray Reconstruction needs the raw,
 // noisy ray-traced lighting, so they go to 0 while it runs and back to the game's values (and
 // priorities) after. Set on the game thread like the render resolution.
+// The last entry isn't a denoiser: Callisto traces ray-traced shadows at a lower resolution and
+// upscales them (its tiled culling path); RrShadows 0 holds that off too, so Ray Reconstruction gets
+// full-resolution shadow noise rather than upscaled blocks (user saw noise around some lights
+// with RR in 1.0.1, 2026-11-17). Every entry is held at 0.
 const wchar_t* const kDenoiserNames[] = {L"r.Shadow.Denoiser",          L"r.Reflections.Denoiser",
                                          L"r.AmbientOcclusion.Denoiser", L"r.DiffuseIndirect.Denoiser",
-                                         L"r.RayTracing.GlobalIllumination.Denoiser", L"r.RayTracing.SkyLight.Denoiser"};
-constexpr int kDenoiserCount = 6;
+                                         L"r.RayTracing.GlobalIllumination.Denoiser", L"r.RayTracing.SkyLight.Denoiser",
+                                         L"r.RayTracing.TiledCulling.UpscaleShadows"};
+constexpr int kDenoiserCount = 7;
+constexpr int kShadowDenoiser = 0, kUpscaleShadows = 6;
 struct Denoisers {
     void* var[kDenoiserCount] = {};
     int32_t game[kDenoiserCount] = {};
     uint32_t priority[kDenoiserCount] = {};
-    bool overriding = false;  // game thread
+    bool held[kDenoiserCount] = {};  // game thread
     std::atomic<bool> wantOff{false};
-    std::atomic<int> off{0};  // how many are off (overlay)
+    std::atomic<int> rrShadows{0};  // g_set.rrShadows, for the game thread
+    std::atomic<int> off{0};        // how many denoisers are off (overlay)
 } g_dn;
 
 void FindDenoisers() {
@@ -1497,39 +1510,46 @@ void FindDenoisers() {
 
 // Game thread, about every 15 frames.
 void DenoiserTick() {
-    if (g_dn.wantOff) {
-        int n = 0;
-        for (int i = 0; i < kDenoiserCount; ++i) {
+    const bool rr = g_dn.wantOff;
+    const int shadows = g_dn.rrShadows;  // 0 RR with full-res rays, 1 game's shadow denoiser, 2 RR with upscaled rays
+    int n = 0, changed = 0;
+    for (int i = 0; i < kDenoiserCount; ++i) {
+        if (!g_dn.var[i]) continue;
+        const bool want = rr && !(i == kShadowDenoiser && shadows == 1) && !(i == kUpscaleShadows && shadows != 0);
+        if (want) {
             int32_t now = 0;
-            if (!g_dn.var[i] || !cvars::GetInt(g_dn.var[i], now)) continue;
-            if (!g_dn.overriding) {
+            if (!cvars::GetInt(g_dn.var[i], now)) continue;
+            if (!g_dn.held[i]) {
                 g_dn.game[i] = now;
                 g_dn.priority[i] = cvars::GetFlags(g_dn.var[i]) & cvars::kPriorityMask;
+                g_dn.held[i] = true;
+                ++changed;
             } else if (now != 0) {
                 g_dn.game[i] = now;  // the game set it again
                 Log("Ray Reconstruction: the game set %ls to %d again", kDenoiserNames[i], now);
             }
             if (now != 0) cvars::Set(g_dn.var[i], L"0");
-            ++n;
-        }
-        if (!g_dn.overriding)
-            Log("Ray Reconstruction: %d ray tracing denoisers off (game's: shadows %d, reflections %d, AO %d, diffuse "
-                "indirect %d, GI %d, sky light %d)", n, g_dn.game[0], g_dn.game[1], g_dn.game[2], g_dn.game[3],
-                g_dn.game[4], g_dn.game[5]);
-        g_dn.overriding = true;
-        g_dn.off = n;
-    } else if (g_dn.overriding) {
-        for (int i = 0; i < kDenoiserCount; ++i) {
-            if (!g_dn.var[i]) continue;
+            if (i != kUpscaleShadows) ++n;
+        } else if (g_dn.held[i]) {
             wchar_t text[16];
             swprintf(text, 16, L"%d", g_dn.game[i]);
             cvars::Set(g_dn.var[i], text);
             cvars::RestorePriority(g_dn.var[i], g_dn.priority[i]);
+            g_dn.held[i] = false;
+            ++changed;
         }
-        g_dn.overriding = false;
-        g_dn.off = 0;
-        Log("Ray Reconstruction off: ray tracing denoisers back to the game's values");
     }
+    if (changed) {
+        char list[512] = "";
+        size_t len = 0;
+        for (int i = 0; i < kDenoiserCount && len < sizeof(list); ++i)
+            if (g_dn.var[i])
+                len += snprintf(list + len, sizeof(list) - len, " %ls %s (game's %d);", kDenoiserNames[i],
+                                g_dn.held[i] ? "0" : "game's", g_dn.game[i]);
+        Log("Ray Reconstruction %s, shadows: %s:%s", rr ? "on" : "off",
+            shadows == 1 ? "game's denoiser" : shadows == 2 ? "RR, game's upscaled rays" : "RR, full-resolution rays", list);
+    }
+    g_dn.off = n;
 }
 
 bool SetFloat(void* var, float v) {
@@ -1706,6 +1726,7 @@ void UpdateResolution() {
     g_res.fsr2Off = g_set.enabled;
     // Denoisers off while Ray Reconstruction ran in the last couple of seconds.
     g_dn.wantOff = g_set.enabled && g_set.rr && g_rrEvaluated.load() > 0 && g_presents.load() - g_rrLastPresent.load() < 120;
+    g_dn.rrShadows = g_set.rrShadows;
 }
 
 void LogStats() {
@@ -1872,6 +1893,17 @@ void DrawUpscalerSettings() {
                  "model choice above doesn't apply while Ray Reconstruction is on.\n\n"
                  "A Ray Reconstruction model override set in the NVIDIA App (DLSS Override - Model Presets) takes\n"
                  "precedence over this choice: set it to \"Use app default\" there for this choice to apply.");
+            static const char* const kRrShadowNames[] = {"Ray Reconstruction, full-resolution rays", "Game's shadow denoiser",
+                                                         "Ray Reconstruction, game's upscaled rays"};
+            ImGui::SetNextItemWidth(ControlWidth());
+            if (ImGui::Combo("Ray-traced shadows", &g_set.rrShadows, kRrShadowNames, 3)) SaveAndLog();
+            Help("Who cleans up the ray-traced shadows while Ray Reconstruction runs.\n\n"
+                 "Ray Reconstruction, full-resolution rays (default): the game's shadow denoiser is off and the\n"
+                 "game traces its shadow rays at full resolution instead of upscaling them, so Ray Reconstruction\n"
+                 "gets the fine-grained noise it is made for. Costs more than the others.\n"
+                 "Game's shadow denoiser: the game's own shadow denoiser stays on; Ray Reconstruction cleans up\n"
+                 "the reflections. Try this if some lights' shadows still look noisy.\n"
+                 "Ray Reconstruction, game's upscaled rays: as in 1.0.1 (cheapest; blotchy noise near some lights).");
             std::string err;
             {
                 std::lock_guard<std::recursive_mutex> lock(g_mutex);
