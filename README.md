@@ -36,11 +36,15 @@ an RTX 30 card).
   The game's reflections have no denoiser of their own, so they gain the most. The game's ray
   tracing denoisers are switched off while it runs and come back when it's off. Needs the game's
   ray tracing on; costs a little more than Super Resolution. **Ray Reconstruction model**: NVIDIA's
-  default, D, E or F. The surface pictures it gets from the game (colour, reflectivity, normals,
-  roughness) can be shown from the Advanced tab.
+  default, D, E or F. **Ray-traced shadows**: Ray Reconstruction with full-resolution shadow rays
+  (default: the game normally traces its shadows at a lower resolution and upscales them, which
+  leaves blotchy noise near some lights; costs more), the game's own shadow denoiser, or Ray
+  Reconstruction with the game's upscaled shadows (cheapest). The surface pictures it gets from the
+  game (colour, reflectivity, normals, roughness) can be shown from the Advanced tab.
 - **Frame generation**: Off, DLSS 2x / 3x / 4x / Dynamic (NVIDIA Streamline 2.14.16, with Reflex),
-  or FSR 2x. Runs in game, not in menus. Switching it on, or between DLSS and FSR, takes a game
-  restart; DLSS's multipliers switch right away.
+  or FSR 2x. Runs in game, not in menus, loading screens or the black screens between scenes.
+  Switching it on, or between DLSS and FSR, takes a game restart; DLSS's multipliers switch right
+  away.
 - **HDR with DLSS Frame Generation**: the game's HDR output is 16-bit floating point (scRGB), on
   which DLSS Frame Generation generates nothing. The add-on keeps the game, RenoDX and ReShade on
   scRGB and gives DLSS Frame Generation a 10-bit HDR10 copy of every frame (converted on the GPU
