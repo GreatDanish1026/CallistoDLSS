@@ -247,3 +247,12 @@ To find out:
 - Exit crash (UE4SS dump, after returning to the main menu): null `this` in game code (lock-free list
   cmpxchg at exe+0xc44845); UE4SS's minidump has no stack. Not pursued.
 - Build note: a PATH entry with "(x86)" from DSX breaks vcvars; build with DSX entries stripped from PATH.
+
+## 1.0.2 test (2026-11-17): RR full-resolution shadows confirmed
+
+- User: the new default (RR, full-resolution shadow rays) "looked much better" than 1.0.1's upscaled
+  shadows. Log: `r.RayTracing.TiledCulling.UpscaleShadows` held 0 and given back when switching modes.
+- Frame generation: Streamline tag errors down from hundreds to 8 single frames (camera cuts) in ~4 min.
+  But at the first start it switched on/off 3 times in 0.1 s: after resuming (8 tagged in a row) the
+  older misses still in the 16-present window paused it again. Fixed: history cleared on resume.
+  Settings log line now includes the RR shadow mode.

@@ -1820,10 +1820,10 @@ void UnregisterUpscaler() {
 void SaveAndLog() {
     g_resetAll = true;
     SaveSettings();
-    Log("settings: upscaler %s (%s), DLSS preset %d, FSR sharpness %.2f, mode %s, Ray Reconstruction %s (preset %d)",
+    Log("settings: upscaler %s (%s), DLSS preset %d, FSR sharpness %.2f, mode %s, Ray Reconstruction %s (preset %d, shadows %d)",
         g_set.enabled ? "on" : "off", kBackendNames[g_set.backend], g_set.preset, g_set.sharpness,
         kDlssModeNames[g_set.mode >= 0 && g_set.mode < kDlssModeCount ? g_set.mode : 0], g_set.rr ? "on" : "off",
-        g_set.rrPreset);
+        g_set.rrPreset, g_set.rrShadows);
 }
 
 // DLSS models offered (NVSDK_NGX_DLSS_Hint_Render_Preset_*; dlss::kPresetAuto = per render scale).

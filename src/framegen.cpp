@@ -287,7 +287,10 @@ bool InputsSteady(bool has) {
             Log("frame generation: %u of the last 16 presents without inputs (%u in a row): paused until 8 in a row have them",
                 missing16, g_untagged);
     } else if (!g_inputsSteady && (g_missingHistory & 0xffu) == 0) {
+        // Forget the misses before the 8: still in the 16-present window, they paused it again on the
+        // next present (1.0.2 test: on/off three times within 0.1 s at the first start).
         g_inputsSteady = true;
+        g_missingHistory = 0;
     }
     return g_inputsSteady;
 }
