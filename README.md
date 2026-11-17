@@ -1,4 +1,4 @@
-# CallistoDLSS 1.0.2
+# CallistoDLSS 1.0.3
 
 ReShade add-on for **The Callisto Protocol** (Unreal Engine 4.27, DirectX 12) that replaces the
 game's own TAA with **NVIDIA DLSS** (optionally **DLSS Ray Reconstruction**) or **AMD FSR**, and
@@ -73,6 +73,10 @@ frame capture) tabs. Settings are saved in `ReShade.ini` under `[CallistoDLSS]`.
 
 Frame counters that hook the game's own presents (RTSS, for one) may not count generated frames;
 the Steam or NVIDIA overlay does.
+
+If NVIDIA's Streamline can't take over the game's swapchain (the overlay then says so), the game
+starts with its own swapchain: DLSS upscaling and Ray Reconstruction still work, DLSS Frame
+Generation doesn't. `CallistoDLSS.log` records the swapchain's settings; please send it along.
 
 The zip includes NVIDIA's DLSS 310.9.16 (Super Resolution and Ray Reconstruction) and Streamline
 2.14.16 runtime files, signed by NVIDIA (the add-on checks Streamline's signature before loading
