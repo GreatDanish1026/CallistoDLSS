@@ -722,6 +722,23 @@ void WrapForHdr(IUnknown* dev, DXGI_FORMAT wanted, IDXGISwapChain** out) {
     queue->Release();  // the layer keeps its own reference
 }
 
+// Streamline refused the game's swapchain once (a user's log, 1.0.2: DXGI_ERROR_INVALID_CALL from
+// DLSS-G's "before CreateSwapChain"). 1.0.2 handed that error to the game, which can't start without a
+// swapchain; now the game's own swapchain is made instead (no DLSS frame generation, DLSS
+// upscaling unaffected), and later swapchains aren't offered to Streamline again.
+bool g_slSwapchainFailed = false;
+
+void StreamlineSwapchainFailed(const char* call, HRESULT hr, unsigned w, unsigned h, unsigned format, unsigned buffers,
+                               unsigned effect, unsigned flags, int windowed, bool output) {
+    std::lock_guard<std::recursive_mutex> lock(g_mutex);
+    g_slSwapchainFailed = true;
+    g_status = "Streamline couldn't create the game's swapchain (see the log)";
+    Log("frame generation: %s through Streamline failed: 0x%08lx (%ux%u format %u, %u buffers, swap effect %u, flags 0x%x, "
+        "windowed %d%s); the game's own swapchain is used, DLSS Frame Generation off",
+        call, static_cast<unsigned long>(hr), w, h, format, buffers, effect, flags, windowed,
+        output ? ", fullscreen output given" : "");
+}
+
 HRESULT STDMETHODCALLTYPE HookCreateSwapChain(IDXGIFactory* f, IUnknown* dev, DXGI_SWAP_CHAIN_DESC* desc, IDXGISwapChain** out) {
     void* caller = _ReturnAddress();
     if (Fsr()) {
@@ -733,7 +750,8 @@ HRESULT STDMETHODCALLTYPE HookCreateSwapChain(IDXGIFactory* f, IUnknown* dev, DX
         HookFsrProxy(*out);
         return hr;
     }
-    if (t_creating || CalledFromStreamline(caller) || !EnsureStreamline(dev)) return g_createSwapChain(f, dev, desc, out);
+    if (t_creating || CalledFromStreamline(caller) || g_slSwapchainFailed || !EnsureStreamline(dev))
+        return g_createSwapChain(f, dev, desc, out);
     void* proxy = UpgradeFactory(f);
     if (!proxy) return g_createSwapChain(f, dev, desc, out);
     // Streamline's swapchain is HDR10 where the game asks for scRGB (hdrswap.hpp).
@@ -746,10 +764,13 @@ HRESULT STDMETHODCALLTYPE HookCreateSwapChain(IDXGIFactory* f, IUnknown* dev, DX
     if (SUCCEEDED(hr) && out && *out) {
         HookProxyPresent(*out);
         WrapForHdr(dev, desc->BufferDesc.Format, out);
-    } else {
-        Log("frame generation: CreateSwapChain through Streamline failed: 0x%08lx", static_cast<unsigned long>(hr));
+        return hr;
     }
-    return hr;
+    StreamlineSwapchainFailed("CreateSwapChain", hr, desc->BufferDesc.Width, desc->BufferDesc.Height,
+                              static_cast<unsigned>(desc->BufferDesc.Format), desc->BufferCount,
+                              static_cast<unsigned>(desc->SwapEffect), desc->Flags, desc->Windowed, false);
+    if (out) *out = nullptr;
+    return g_createSwapChain(f, dev, desc, out);
 }
 
 HRESULT STDMETHODCALLTYPE HookCreateForHwnd(IDXGIFactory2* f, IUnknown* dev, HWND hwnd, const DXGI_SWAP_CHAIN_DESC1* desc,
@@ -765,7 +786,7 @@ HRESULT STDMETHODCALLTYPE HookCreateForHwnd(IDXGIFactory2* f, IUnknown* dev, HWN
         HookFsrProxy(*out);
         return hr;
     }
-    if (t_creating || CalledFromStreamline(caller) || !EnsureStreamline(dev))
+    if (t_creating || CalledFromStreamline(caller) || g_slSwapchainFailed || !EnsureStreamline(dev))
         return g_createForHwnd(f, dev, hwnd, desc, fs, output, out);
     void* proxy = UpgradeFactory(f);
     if (!proxy) return g_createForHwnd(f, dev, hwnd, desc, fs, output, out);
@@ -780,10 +801,13 @@ HRESULT STDMETHODCALLTYPE HookCreateForHwnd(IDXGIFactory2* f, IUnknown* dev, HWN
         IDXGISwapChain* sc = *out;
         WrapForHdr(dev, desc->Format, &sc);
         *out = static_cast<IDXGISwapChain1*>(sc);
-    } else {
-        Log("frame generation: CreateSwapChainForHwnd through Streamline failed: 0x%08lx", static_cast<unsigned long>(hr));
+        return hr;
     }
-    return hr;
+    StreamlineSwapchainFailed("CreateSwapChainForHwnd", hr, desc->Width, desc->Height, static_cast<unsigned>(desc->Format),
+                              desc->BufferCount, static_cast<unsigned>(desc->SwapEffect), desc->Flags,
+                              fs ? fs->Windowed : 1, output != nullptr);
+    if (out) *out = nullptr;
+    return g_createForHwnd(f, dev, hwnd, desc, fs, output, out);
 }
 
 // Hooks the system DXGI factory's vtable (shared by every factory, ReShade's hooks included).
@@ -1519,6 +1543,7 @@ std::string FrameGenHeadline(bool* warn) {
         return g_initTried || g_factoryHooked ? "Frame generation: " + g_status
                                               : std::string("Frame generation: restart the game to start it");
     }
+    if (g_slSwapchainFailed && !g_upgraded) return (*warn = true), "Frame generation: " + g_status;
     if (!g_upgraded) return (*warn = true), "Frame generation not running: the game's swapchain wasn't handed over";
     if (!g_fgOn) return "Frame generation paused (upscaler off, menu or loading)";
     if (Fsr()) return fsrfg::Version() + " on: 2x";

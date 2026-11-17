@@ -260,3 +260,14 @@ To find out:
 - Exit crash is reproducible: identical in all three 2026-11-17 sessions (exe+0xc44845, write to null+0x40,
   ~5 s after returning to the main menu, UE4SS dumps without stacks). No dump on 2026-11-16 with
   UE4SS 1.0.1 installed too. Not yet bisected (UE4SS off / add-on off).
+
+## User log (1.0.2, 2026-11-17): Streamline refused the game's swapchain
+
+`CreateSwapChain` through Streamline's proxy failed with 0x887a0001 (DXGI_ERROR_INVALID_CALL; DLSS-G's
+"PFunCreateSwapChainBefore failed"), right after Streamline started. Log ends there: 1.0.2 returned that
+error to the game, and UE treats a failed swapchain creation as fatal. Our runs take the same path
+and succeed, so the user's swapchain description differs (exclusive fullscreen, buffer count/flags,
+another overlay or injector?). 1.0.3: falls back to the game's own swapchain (no DLSS-G, DLSS
+upscaling unaffected), stops offering later swapchains to Streamline, and logs the description
+(size, format, buffers, swap effect, flags, windowed). Fallback path untested here (Streamline succeeds
+on this PC).
