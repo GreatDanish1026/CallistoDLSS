@@ -279,3 +279,12 @@ on this PC).
 - That user's game crashed after the 1.0.3 fallback (Streamline left half set up). 1.0.4 shuts Streamline
   down on the refusal. Tested here with `FgTestFallback=1` (2026-11-18): Streamline shut down, DLSS started
   NGX itself, DLSS + RR ran, no crash. Streamline's real half-done state on that PC isn't reproducible here.
+- Their sl.log (1.0.4, 2026-11-18): Steam version (D:\SteamLibrary), **RTX 4090** (architecture 0x190; test PC
+  0x1b0, RTX 5080), driver 621.24 and Windows 10.0.26300 as here; max 1 generated frame is normal on RTX 40.
+  **NVIDIA App DLSS overrides on**: dlss, dlssg and dlssd "override enabled", models loaded from
+  C:\ProgramData\NVIDIA\NGX\models\...\20318480 instead of our streamline\ DLLs (test PC loads ours).
+  DLSS-G started fine; the failure is in Streamline's own CreateSwapChain (swapChainData.cpp:259) right
+  after "App requested FRAME_LATENCY_WAITABLE_OBJECT" (same line on the test PC, which then succeeds).
+  Streamline then shut down cleanly (NGX too). CallistoDLSS.log ends there: crash or no gameplay unknown.
+  Next: user turns off the NVIDIA App overrides for the game; full log with FG off after gameplay
+  (upscaler never started for them).
