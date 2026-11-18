@@ -727,16 +727,31 @@ void WrapForHdr(IUnknown* dev, DXGI_FORMAT wanted, IDXGISwapChain** out) {
 // swapchain; now the game's own swapchain is made instead (no DLSS frame generation, DLSS
 // upscaling unaffected), and later swapchains aren't offered to Streamline again.
 bool g_slSwapchainFailed = false;
+// ReShade.ini [CallistoDLSS] FgTestFallback=1: acts as if Streamline refused the swapchain, to test
+// the fallback on a PC where it doesn't (a user's game crashed after the 1.0.3 fallback).
+bool g_testFallback = false;
 
+// 1.0.3 kept Streamline running after the refusal (its DLSS-G plugin half set up, Reflex, the
+// add-on's frame generation hooks still "ready"), and the user's game then crashed. Now Streamline
+// is shut down right away, before DLSS starts NGX for itself, so the game runs as with frame
+// generation off.
 void StreamlineSwapchainFailed(const char* call, HRESULT hr, unsigned w, unsigned h, unsigned format, unsigned buffers,
                                unsigned effect, unsigned flags, int windowed, bool output) {
     std::lock_guard<std::recursive_mutex> lock(g_mutex);
     g_slSwapchainFailed = true;
-    g_status = "Streamline couldn't create the game's swapchain (see the log)";
     Log("frame generation: %s through Streamline failed: 0x%08lx (%ux%u format %u, %u buffers, swap effect %u, flags 0x%x, "
-        "windowed %d%s); the game's own swapchain is used, DLSS Frame Generation off",
+        "windowed %d%s%s); the game's own swapchain is used, DLSS Frame Generation off",
         call, static_cast<unsigned long>(hr), w, h, format, buffers, effect, flags, windowed,
-        output ? ", fullscreen output given" : "");
+        output ? ", fullscreen output given" : "", g_testFallback ? ", FgTestFallback" : "");
+    if (g_ready) {
+        g_ready = false;
+        g_token = nullptr;
+        g_upgraded = false;
+        g_fgOn = false;
+        g_sl.shutdown();
+        Log("frame generation: Streamline shut down");
+    }
+    g_status = "Streamline couldn't create the game's swapchain (see the log)";
 }
 
 HRESULT STDMETHODCALLTYPE HookCreateSwapChain(IDXGIFactory* f, IUnknown* dev, DXGI_SWAP_CHAIN_DESC* desc, IDXGISwapChain** out) {
@@ -758,7 +773,7 @@ HRESULT STDMETHODCALLTYPE HookCreateSwapChain(IDXGIFactory* f, IUnknown* dev, DX
     DXGI_SWAP_CHAIN_DESC real = *desc;
     real.BufferDesc.Format = hdrswap::RealFormat(desc->BufferDesc.Format);
     t_creating = true;
-    const HRESULT hr = static_cast<IDXGIFactory*>(proxy)->CreateSwapChain(dev, &real, out);
+    const HRESULT hr = g_testFallback ? DXGI_ERROR_INVALID_CALL : static_cast<IDXGIFactory*>(proxy)->CreateSwapChain(dev, &real, out);
     t_creating = false;
     static_cast<IUnknown*>(proxy)->Release();
     if (SUCCEEDED(hr) && out && *out) {
@@ -793,7 +808,8 @@ HRESULT STDMETHODCALLTYPE HookCreateForHwnd(IDXGIFactory2* f, IUnknown* dev, HWN
     DXGI_SWAP_CHAIN_DESC1 real = *desc;
     real.Format = hdrswap::RealFormat(desc->Format);
     t_creating = true;
-    const HRESULT hr = static_cast<IDXGIFactory2*>(proxy)->CreateSwapChainForHwnd(dev, hwnd, &real, fs, output, out);
+    const HRESULT hr = g_testFallback ? DXGI_ERROR_INVALID_CALL
+                                      : static_cast<IDXGIFactory2*>(proxy)->CreateSwapChainForHwnd(dev, hwnd, &real, fs, output, out);
     t_creating = false;
     static_cast<IUnknown*>(proxy)->Release();
     if (SUCCEEDED(hr) && out && *out) {
@@ -1442,6 +1458,7 @@ void RegisterFrameGen() {
     if (g_set.tech < 0 || g_set.tech >= kTechCount) g_set.tech = kTechDlss;
     reshade::get_config_value(nullptr, RD_PRODUCT, "FsrHudMode", g_set.fsrHud);
     if (g_set.fsrHud < 0 || g_set.fsrHud >= fsrfg::kHudModeCount) g_set.fsrHud = fsrfg::kHudComposite;
+    reshade::get_config_value(nullptr, RD_PRODUCT, "FgTestFallback", g_testFallback);
     g_activeTech = g_set.tech;  // until the next launch
     g_set.enabled = g_set.mode != kOff && kTsrMapped;  // needs the upscaler, which needs TSR mapped
     if (g_set.enabled) Log("frame generation: %s, %s", kTechNames[g_activeTech], kModeNames[EffectiveMode(g_set.mode)]);
