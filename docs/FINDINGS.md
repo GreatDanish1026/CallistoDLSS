@@ -276,3 +276,6 @@ on this PC).
   slIsFeatureSupported(DLSS-G) passed there (GPU, driver, HAGS), so the refusal comes from inside DLSS-G's
   own swapchain creation: suspect another DXGI/window hook on that PC (overlay, injector, NVIDIA Smooth
   Motion profile, OptiScaler leftovers). Asked for streamline\sl.log, ReShade.log and the folder listing.
+- That user's game crashed after the 1.0.3 fallback (Streamline left half set up). 1.0.4 shuts Streamline
+  down on the refusal. Tested here with `FgTestFallback=1` (2026-11-18): Streamline shut down, DLSS started
+  NGX itself, DLSS + RR ran, no crash. Streamline's real half-done state on that PC isn't reproducible here.

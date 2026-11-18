@@ -3,4 +3,4 @@
 
 #define RD_PRODUCT "CallistoDLSS"  // add-on name, log file name, ReShade.ini section
 #define RD_GAME "The Callisto Protocol"
-#define RD_VERSION "1.0.3"
+#define RD_VERSION "1.0.4"
