@@ -271,3 +271,8 @@ another overlay or injector?). 1.0.3: falls back to the game's own swapchain (no
 upscaling unaffected), stops offering later swapchains to Streamline, and logs the description
 (size, format, buffers, swap effect, flags, windowed). Fallback path untested here (Streamline succeeds
 on this PC).
+- 1.0.3 on that PC (2026-11-18): fallback taken. Their swapchain: 3840x2160 format 24, 3 buffers, swap effect
+  4 (flip discard), flags 0x842, windowed 1: the same as on the test PC, where Streamline accepts it.
+  slIsFeatureSupported(DLSS-G) passed there (GPU, driver, HAGS), so the refusal comes from inside DLSS-G's
+  own swapchain creation: suspect another DXGI/window hook on that PC (overlay, injector, NVIDIA Smooth
+  Motion profile, OptiScaler leftovers). Asked for streamline\sl.log, ReShade.log and the folder listing.
